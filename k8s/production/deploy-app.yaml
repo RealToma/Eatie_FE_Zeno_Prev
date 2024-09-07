@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: 'eatie-www'
+spec:
+  replicas: 2
+  revisionHistoryLimit: 0
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      app: eatie-www
+  template:
+    metadata:
+      labels:
+        app: eatie-www
+      annotations:
+        REDEPLOY_HASH: ${REDEPLOY_HASH}
+    spec:
+      containers:
+        - name: app
+          image: ${CONTAINER_IMAGE_APP}
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 670m
+              memory: 1200Mi
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: 'eatie-www'
+      imagePullSecrets: 
+        - name: registry-credentials

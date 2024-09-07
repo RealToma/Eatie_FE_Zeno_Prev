@@ -1,0 +1,14 @@
+version: '3.5'
+
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: development
+    volumes:
+      # - ./app/build:/usr/share/nginx/html
+      - /app/node_modules
+    ports:
+      - 3000:80

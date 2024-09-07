@@ -1,0 +1,68 @@
+variables:
+  CONTAINER_IMAGE_APP: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG:$CI_COMMIT_SHA
+  CONTAINER_IMAGE_APP_LATEST: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG:latest
+  K8S_RESOURCE_NAME: $K8S_PROJECT
+
+stages:
+  - build
+  - deploy
+  - release
+
+.extend-deploy-config:
+  image:
+    name: alpine
+  variables:
+    K8S_PROJECT: $CI_PROJECT_NAME
+    K8S_COMMIT_REF: $CI_COMMIT_REF_SLUG
+  before_script:
+    - apk update
+
+.extend-build-app:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [ "" ]
+  script:
+    - echo $TESTENV
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - >-
+      /kaniko/executor
+      --cache=true
+      --cache-repo=$CI_REGISTRY_IMAGE/cache
+      --context "${CI_PROJECT_DIR}/app"
+      --build-arg=ENV_FILE=${CI_COMMIT_REF_NAME}.env
+      --dockerfile "${CI_PROJECT_DIR}/app/Dockerfile"
+      --destination $CONTAINER_IMAGE_APP
+
+build image:
+  extends:
+    - .extend-build-app
+
+deploy non production:
+  stage: deploy
+  environment:
+    name: ${CI_COMMIT_REF_NAME}
+  only:
+    refs:
+      - development
+      - staging
+  script:
+    - apk update  --allow-untrusted
+    - export REDEPLOY_HASH=$CI_COMMIT_REF_NAME-$(date +%s)
+    - apk add kubectl --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/  --allow-untrusted
+    - kubectl config set-cluster cluster --server=${K8S_ADDR}
+    - kubectl config set clusters.cluster.certificate-authority-data ${K8S_CERT}
+    - kubectl config set-credentials user --token=${K8S_TOKEN}
+    - kubectl config set-context context --user=user --cluster=cluster
+    - kubectl config use-context context
+    - apk add jq --repository=http://dl-cdn.alpinelinux.org/alpine/edge/main/
+    - apk add gettext --repository=http://dl-cdn.alpinelinux.org/alpine/edge/main/
+    - for f in k8s/${CI_COMMIT_REF_NAME}/*.yaml; do envsubst "$(env | sed -e 's/=.*//' -e 's/^/\$/g')" < $f | kubectl apply -f -; done
+
+
+deploy production:
+  extends: deploy non production
+  when: manual
+  only:
+    - production
